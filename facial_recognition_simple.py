@@ -88,32 +88,80 @@ def recognize_faces():
             print("No face database found. Please capture some faces first.")
             return
         
+        # Load face samples
+        for filename in os.listdir('faces'):
+            if filename.endswith(('.jpg', '.jpeg', '.png')):
+                path = os.path.join('faces', filename)
+                name = filename.split('_')[0]  # Get name from filename
+                
+                # Assign numeric label to name
+                if name not in label_dict:
+                    label_dict[name] = current_label
+                    current_label += 1
+                
+                # Read and preprocess face image
+                face_img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                faces.append(face_img)
+                labels.append(label_dict[name])
+
+        # Train the recognizer
+        face_recognizer.train(faces, np.array(labels))
+        print("Training completed!")
+
+        # Create reverse mapping (label to name)
+        name_dict = {label: name for name, label in label_dict.items()}
+
         # Initialize camera
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("Error: Could not open camera")
             return
-        
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 print("Failed to grab frame")
                 break
-                
+
+            # Convert to grayscale
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
             
+            # Detect faces
+            faces = face_detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+
             for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-                cv2.putText(frame, 'Face Detected', (x, y-10), 
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36,255,12), 2)
-            
+                # Get face ROI
+                face_roi = gray[y:y+h, x:x+w]
+                face_roi = cv2.resize(face_roi, (200, 200))
+
+                try:
+                    # Predict the face
+                    label, confidence = face_recognizer.predict(face_roi)
+                    name = name_dict.get(label, "Unknown")
+                    
+                    # Calculate confidence percentage (100% - confidence, as lower confidence means better match)
+                    confidence_pct = max(0, min(100, 100 - confidence))
+                    
+                    # Draw rectangle around face
+                    color = (0, 255, 0) if confidence_pct > 50 else (0, 0, 255)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                    
+                    # Show name and confidence
+                    text = f"{name} ({confidence_pct:.1f}%)"
+                    cv2.putText(frame, text, (x, y-10), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+                except:
+                    # If recognition fails
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                    cv2.putText(frame, "Unknown", (x, y-10),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+            # Show quit instructions
             cv2.putText(frame, "Press 'q' to quit", (10, frame.shape[0] - 10),
                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            cv2.imshow('Face Detection', frame)
+            cv2.imshow('Face Recognition', frame)
             
-            # Break if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     
